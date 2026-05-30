@@ -175,6 +175,20 @@ cd build/web && python3 -m http.server 5060
 
 ---
 
+## 📚 문서 (Documentation)
+
+상세 문서는 [`docs/`](./docs/) 디렉토리에서 확인할 수 있습니다.
+
+| 문서 | 내용 |
+|------|------|
+| [📐 ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 시스템 아키텍처, 데이터 모델 (ER), 계층 구조, 배포 구성도 |
+| [🔒 SECURITY.md](./docs/SECURITY.md) | 위협 모델링(STRIDE), 권한 매트릭스, 컴플라이언스 매핑 (전자금융감독규정·개인정보보호법) |
+| [📝 CHANGELOG.md](./docs/CHANGELOG.md) | 버전별 변경 이력, Semantic Versioning 가이드 |
+
+> 💡 **금융기관 내부 심의·감사 제출 시 참고**: 위 3개 문서는 시스템 변경 결재 첨부 자료로 활용할 수 있도록 구성되었습니다.
+
+---
+
 ## 📝 라이선스 / 이용 안내
 
 본 시스템은 **금융기관 내부용**으로 개발되었으며, 외부 배포 시 별도 검토가 필요합니다.
