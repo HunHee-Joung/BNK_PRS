@@ -20,6 +20,19 @@
 
 ---
 
+## 📚 문서 인덱스
+
+| 문서 | 설명 | 대상 |
+|------|------|------|
+| **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | 시스템 아키텍처 명세 (레이어, 데이터 모델, ADR) | 개발자, 아키텍트 |
+| **[SECURITY.md](docs/SECURITY.md)** | 보안 설계, 위협 모델링, 컴플라이언스 매핑 | 정보보호팀, 감사 |
+| **[USER_GUIDE.md](docs/USER_GUIDE.md)** | 관리자/평가자 사용 매뉴얼, FAQ | 사용자, 운영팀 |
+| **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** | 폐쇄망 배포(nginx/IIS/MDM), 롤백 절차 | 운영팀, 인프라팀 |
+| **[API_REFERENCE.md](docs/API_REFERENCE.md)** | 내부 모듈/Provider/Service 레퍼런스 | 개발자, 유지보수 |
+| **[CHANGELOG.md](docs/CHANGELOG.md)** | 버전별 변경 이력 (Keep a Changelog 형식) | 모두 |
+
+---
+
 ## 📌 개요
 
 금융기관에서 외부 벤더의 제품 설명회를 진행할 때, 평가위원들이 **태블릿/PC 환경에서 표준화된 템플릿으로 평가하고 즉시 집계**할 수 있도록 만든 내부 시스템입니다.
