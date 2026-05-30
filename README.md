@@ -16,6 +16,7 @@
 | **[docs/SECURITY.md](./docs/SECURITY.md)** | 보안 정책 · STRIDE 위협 모델링 · 컴플라이언스 매핑 |
 | **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | 시스템 아키텍처 · ER 다이어그램 · 데이터 흐름 · 배포 토폴로지 |
 | **[docs/CHANGELOG.md](./docs/CHANGELOG.md)** | 버전별 변경 이력 (감사 추적용) |
+| **[docs/USER_GUIDE.md](./docs/USER_GUIDE.md)** | 관리자 · 평가자 사용 매뉴얼 (FAQ 포함) |
 
 ---
 
