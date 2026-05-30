@@ -8,6 +8,17 @@
 
 ---
 
+## 📚 문서
+
+| 문서 | 설명 |
+|------|------|
+| **[README.md](./README.md)** | 프로젝트 개요 (본 문서) |
+| **[docs/SECURITY.md](./docs/SECURITY.md)** | 보안 정책 · STRIDE 위협 모델링 · 컴플라이언스 매핑 |
+| **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | 시스템 아키텍처 · ER 다이어그램 · 데이터 흐름 · 배포 토폴로지 |
+| **[docs/CHANGELOG.md](./docs/CHANGELOG.md)** | 버전별 변경 이력 (감사 추적용) |
+
+---
+
 ## 📌 개요
 
 금융기관에서 외부 벤더의 제품 설명회를 진행할 때, 평가위원들이 **태블릿/PC 환경에서 표준화된 템플릿으로 평가하고 즉시 집계**할 수 있도록 만든 내부 시스템입니다.
