@@ -35,6 +35,71 @@
 
 ---
 
+## [1.0.1] — 2026-06-04
+
+> 🎨 **평가자 인증 UX 단순화** — 금융권 실무 친화적 워크플로우
+
+### Changed
+- **평가자 인증 방식 전면 개편**: 4단계 인증 → **입장코드 단독 진입 (1-input flow)**
+  - 기존: 설명회ID(UUID) + 이메일 + 생년월일6자리 + 입장코드(6자리 숫자)
+  - 신규: **입장코드(8자리, `XXXX-XXXX` 형식) 1개만 입력**
+  - 사유: 평가위원회 위원들(타기업 외부 인사 포함)이 설명회ID UUID를 외우거나 정확히 입력하기 어려웠던 UX 이슈 해결
+  - 본인확인 전제: 입장코드 발급 시점에 관리자가 본인확인 완료한 것으로 간주 (1회용 코드 + 만료 시간으로 보안 확보)
+- **입장코드 형식 강화**:
+  - 6자리 숫자 → **8자리 영문대문자+숫자** (`XXXX-XXXX` 패턴)
+  - 혼동 방지 문자 제외 (`0`, `1`, `O`, `I`, `L` 미사용)
+  - `Random.secure()` + 10회 중복 검사로 충돌 방지
+- **세션 상세 → 초대 탭 UX 개선**:
+  - 평가자별 입장코드 카드 탭 시 액션 시트 표시
+  - **평가자별 개별 QR 코드** 자동 생성 (`eval://code/XXXX-XXXX`)
+  - **입장코드 클립보드 복사** 버튼 추가
+  - **초대문구 일괄 복사** 버튼 (평가자명/설명회/입장코드/만료시간 한번에 복사)
+  - 사용/미사용 통계 헤더 추가
+- **세션 상세 → 개요 탭**: 단일 세션 QR 표시 → 입장코드 발급 안내 카드로 변경
+
+### Added
+- `EntryCodeAuthResult` 모델 클래스: 입장코드 인증 결과 캡슐화
+- `AppProvider.authenticateByEntryCode(String entryCode)`: 신규 단일 입력 인증 메소드
+  - 검증 순서: 코드 존재 → 만료 → 사용 여부 → 설명회 상태 → 평가자 활성화
+  - 인증 성공 시 `Invitation.isUsed = true`, `usedAt` 자동 기록
+  - 감사 로그(`AuditAction.evaluatorAuth`) 자동 생성
+- `StorageService.findInvitationByEntryCode(String)`: 입장코드로 초대 조회
+- `StorageService.isEntryCodeTaken(String)`: 입장코드 중복 검사 (충돌 방지)
+- `AppProvider._generateUniqueEntryCode()`: 비동기 입장코드 생성기 (대소문자 정규화)
+- `EvaluatorAuthScreen.prefilledEntryCode` 파라미터: QR 스캔 시 자동 채움
+- 입장코드 입력 시 자동 대문자 변환 (`_UpperCaseTextFormatter`)
+- 평가자별 QR 코드에 만료시간 시각화 (`Formatters.dateTime`)
+
+### Deprecated
+- `EvaluatorAuthScreen.sessionId` 파라미터: Backward compat용으로만 유지 (향후 제거 예정)
+- `AppProvider.authenticateEvaluator()`: 신규 진입은 `authenticateByEntryCode()` 사용 권장
+- 6자리 숫자 입장코드 형식: 신규 생성 코드는 모두 8자리 영문+숫자 형식
+
+### Security
+- 입장코드 엔트로피 증가: 6자리 숫자 (10^6 = 100만) → 8자리 28글자 풀 (28^8 ≈ 3.8 × 10^11)
+- 무작위 대입 공격 난이도 약 **38만배 증가**
+- 1회용(`isUsed`) + 만료시간(`expiresAt`) 이중 방어 유지
+- 모든 인증 시도(성공/실패) 감사 로그 자동 기록
+
+### Compliance
+- 금융위 「전자금융감독규정 시행세칙」 §15 (접근통제) 대응:
+  - 1회용 입장코드 + 만료 시간 = 1-Time Password 유사 메커니즘
+  - 본인확인은 관리자 발급 시점에 완료 (Out-of-band 인증으로 간주)
+- FSS 「IT 안전성 가이드라인」 권고사항 반영:
+  - 인증 실패 메시지 표준화 (공격자가 추론 가능한 정보 제한)
+  - 감사 로그 자동 기록 (감사 추적성 확보)
+
+### Fixed
+- 입장코드 입력 필드의 대소문자 혼용으로 인한 인증 실패 → 자동 대문자 변환으로 해결
+- 평가자가 설명회ID(UUID) 입력 시 오타로 인한 진입 실패 → 입력 단계 제거로 원천 차단
+
+### Migration Notes
+- **기존 1.0.0 발급 입장코드**: 6자리 숫자 형식은 계속 유효 (조회 시 대문자 정규화 비교)
+- **신규 발급**: 1.0.1부터 자동으로 8자리 영문+숫자 형식 사용
+- **권장**: 진행 중인 설명회는 종료까지 기존 코드 유지, 신규 설명회부터 새 형식 적용
+
+---
+
 ## [1.0.0] — 2026-05-30
 
 > 🎉 **첫 MVP 릴리즈**

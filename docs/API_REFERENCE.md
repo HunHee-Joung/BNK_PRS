@@ -145,6 +145,8 @@ class AppProvider extends ChangeNotifier {
 
 ### 2.2 인증
 
+#### 관리자 인증
+
 ```dart
 Future<bool> login(String adminId, String password);
 Future<void> logout();
@@ -158,6 +160,94 @@ if (ok) {
   // 로그인 성공 → MainShell로 이동
 }
 ```
+
+#### 평가자 인증 (v1.0.1+) — 입장코드 단독 진입
+
+```dart
+Future<EntryCodeAuthResult> authenticateByEntryCode(String entryCode);
+```
+
+**파라미터**:
+- `entryCode`: 8자리 영문+숫자 입장코드 (`XXXX-XXXX` 형식, 대소문자 무관)
+
+**반환**: `EntryCodeAuthResult`
+```dart
+class EntryCodeAuthResult {
+  final bool ok;
+  final String? errorMessage;
+  final EvalSession? session;
+  final Evaluator? evaluator;
+
+  factory EntryCodeAuthResult.success({
+    required EvalSession session,
+    required Evaluator evaluator,
+  });
+  factory EntryCodeAuthResult.fail(String message);
+}
+```
+
+**검증 순서** (실패 시 즉시 반환):
+1. 코드 빈 값 → `'입장코드를 입력해주세요.'`
+2. 코드 미존재 → `'유효하지 않은 입장코드입니다.'`
+3. 만료됨 (`Invitation.isExpired`) → `'만료된 입장코드입니다.'`
+4. 사용됨 (`Invitation.isUsed`) → `'이미 사용된 입장코드입니다.'`
+5. 설명회 미존재 → `'설명회 정보를 찾을 수 없습니다.'`
+6. 설명회 종료 (`SessionStatus.closed`) → `'이미 종료된 설명회입니다.'`
+7. 설명회 미개시 (`SessionStatus.scheduled`) → `'아직 시작되지 않은 설명회입니다.'`
+8. 평가자 미존재 → `'평가자 정보를 찾을 수 없습니다.'`
+9. 평가자 비활성 → `'비활성화된 평가자 계정입니다.'`
+
+**성공 시 부수 효과**:
+- `AppProvider._currentEvaluator` 설정
+- `AppProvider._currentEvalSession` 설정
+- `Invitation.isUsed = true`, `usedAt = DateTime.now()` 자동 기록 (1회용)
+- `AuditAction.evaluatorAuth` 감사 로그 자동 생성
+- `notifyListeners()` 호출
+
+**예시**:
+```dart
+final provider = context.read<AppProvider>();
+final result = await provider.authenticateByEntryCode('A3K9-M2P7');
+
+if (result.ok) {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => EvaluationScreen(session: result.session!),
+    ),
+  );
+} else {
+  showError(context, result.errorMessage!);
+}
+```
+
+#### 평가자 인증 (Deprecated) — 4-step 인증
+
+```dart
+@Deprecated('Use authenticateByEntryCode() instead - simpler UX')
+Future<bool> authenticateEvaluator({
+  required String sessionId,
+  required String email,
+  required String birthDate6,
+  required String entryCode,
+});
+```
+
+> ⚠️ v1.0.1에서 deprecated. v1.1.0에서 제거 예정. 신규 코드는 `authenticateByEntryCode()` 사용 권장.
+
+#### 입장코드 생성기 (Internal)
+
+```dart
+Future<String> _generateUniqueEntryCode();
+```
+
+**알고리즘**:
+- 문자 풀: `23456789ABCDEFGHJKMNPQRSTUVWXYZ` (28글자, 혼동 문자 `0,1,O,I,L` 제외)
+- 형식: `XXXX-XXXX` (8글자 + 하이픈)
+- 엔트로피: `28^8 ≈ 3.8 × 10^11` (약 380억 조합)
+- 충돌 검사: `StorageService.isEntryCodeTaken()` 호출, 최대 10회 재시도
+- Fallback: 충돌 10회 시 타임스탬프 기반 코드 (`TS-XXXXXX`)
+- 난수원: `Random.secure()` (암호학적 안전 난수)
 
 ### 2.3 데이터 로드
 
@@ -319,6 +409,22 @@ Future<void> deleteSession(String id);
 
 #### Template / Evaluator / Evaluation
 유사한 패턴: `save`, `get`, `getAll`, `delete`
+
+#### Invitation (입장코드 초대) — v1.0.1+
+```dart
+Future<void> saveInvitation(Invitation inv);
+Future<Invitation?> getInvitation(String id);
+Future<List<Invitation>> getInvitationsBySession(String sessionId);
+
+// v1.0.1 신규
+Future<Invitation?> findInvitationByEntryCode(String entryCode);  // 코드로 조회 (대소문자 무관)
+Future<bool> isEntryCodeTaken(String entryCode);                  // 중복 검사
+```
+
+**`findInvitationByEntryCode` 동작**:
+- 입력 코드를 `trim().toUpperCase()` 정규화 후 비교
+- Hive 박스 전체 순회 (O(N), N=발급 코드 수, 일반적으로 < 1000)
+- 일치하는 첫 번째 `Invitation` 반환, 없으면 `null`
 
 #### AuditLog (append-only)
 ```dart

@@ -1,8 +1,15 @@
 // ============================================================
-// 평가자 인증 화면 + 평가 입력 화면
+// 평가자 인증 화면 (입장코드 단독 진입) + 평가 입력 화면
+//
+// UX 원칙:
+//   - 평가자는 관리자에게 받은 "입장코드" 1개만 입력
+//   - QR 스캔 시 자동 채워서 즉시 진입
+//   - 본인확인은 코드 발급 시점에 관리자가 완료한 것으로 간주
+//     (1회용 코드 + 만료 시간으로 보안 확보)
 // ============================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
 import '../models/app_models.dart';
@@ -11,88 +18,77 @@ import '../utils/app_theme.dart';
 import '../widgets/common_widgets.dart';
 
 // ══════════════════════════════════════════════════════════════
-// 평가자 인증 화면
+// 평가자 인증 화면 (입장코드 단독 진입)
 // ══════════════════════════════════════════════════════════════
 class EvaluatorAuthScreen extends StatefulWidget {
-  final String? sessionId; // QR에서 전달받은 세션 ID
-  const EvaluatorAuthScreen({super.key, this.sessionId});
+  /// QR 스캔 시 자동 채워질 입장코드 (선택)
+  final String? prefilledEntryCode;
+
+  /// (Legacy) 이전 버전 호환용 sessionId 파라미터
+  /// → 더 이상 사용되지 않음. prefilledEntryCode 사용 권장
+  final String? sessionId;
+
+  const EvaluatorAuthScreen({
+    super.key,
+    this.prefilledEntryCode,
+    this.sessionId,
+  });
 
   @override
   State<EvaluatorAuthScreen> createState() => _EvaluatorAuthScreenState();
 }
 
 class _EvaluatorAuthScreenState extends State<EvaluatorAuthScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _sessionIdCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _birthCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
-
-  bool _obscureBirth = true;
+  final _focusNode = FocusNode();
   bool _isLoading = false;
-  int _step = 0; // 0: 세션ID 입력, 1: 인증 정보
-
-  EvalSession? _foundSession;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    if (widget.sessionId != null) {
-      _sessionIdCtrl.text = widget.sessionId!;
-      _step = 1;
-      _checkSession();
+    if (widget.prefilledEntryCode != null && widget.prefilledEntryCode!.isNotEmpty) {
+      _codeCtrl.text = widget.prefilledEntryCode!.toUpperCase();
+      // QR로 진입한 경우 자동 인증 시도
+      WidgetsBinding.instance.addPostFrameCallback((_) => _authenticate());
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _focusNode.requestFocus());
     }
   }
 
   @override
   void dispose() {
-    _sessionIdCtrl.dispose();
-    _emailCtrl.dispose();
-    _birthCtrl.dispose();
     _codeCtrl.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
-  Future<void> _checkSession() async {
-    final storage = StorageService.instance;
-    final session = await storage.getSession(_sessionIdCtrl.text.trim());
-    if (mounted) {
-      if (session == null) {
-        showError(context, '유효하지 않은 설명회 ID입니다.');
-      } else if (session.status == SessionStatus.closed) {
-        showError(context, '이미 종료된 설명회입니다.');
-      } else if (session.status == SessionStatus.scheduled) {
-        showError(context, '아직 시작되지 않은 설명회입니다.');
-      } else {
-        setState(() {
-          _foundSession = session;
-          _step = 1;
-        });
-      }
-    }
-  }
-
   Future<void> _authenticate() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_foundSession == null) return;
+    final code = _codeCtrl.text.trim().toUpperCase();
+    if (code.isEmpty) {
+      setState(() => _errorMessage = '입장코드를 입력해주세요.');
+      return;
+    }
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
     try {
-      final ok = await context.read<AppProvider>().authenticateEvaluator(
-        sessionId: _foundSession!.id,
-        email: _emailCtrl.text.trim(),
-        birthDate6: _birthCtrl.text.trim(),
-        entryCode: _codeCtrl.text.trim(),
-      );
-
+      final result = await context.read<AppProvider>().authenticateByEntryCode(code);
       if (!mounted) return;
-      if (ok) {
+
+      if (result.ok && result.session != null) {
+        // 인증 성공 → 평가 화면으로 이동
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => EvaluationScreen(session: _foundSession!)),
+          MaterialPageRoute(builder: (_) => EvaluationScreen(session: result.session!)),
         );
       } else {
-        showError(context, '인증 정보가 올바르지 않습니다.\n이메일, 생년월일, 입장코드를 확인해주세요.');
+        setState(() => _errorMessage = result.errorMessage ?? '인증에 실패했습니다.');
       }
+    } catch (e) {
+      if (mounted) setState(() => _errorMessage = '오류가 발생했습니다: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -117,49 +113,11 @@ class _EvaluatorAuthScreenState extends State<EvaluatorAuthScreen> {
               constraints: const BoxConstraints(maxWidth: 480),
               child: Column(
                 children: [
-                  // 헤더
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: AppTheme.primaryLight,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primary,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(Icons.how_to_vote_outlined, color: Colors.white, size: 28),
-                        ),
-                        const SizedBox(width: 16),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '제품 설명회 평가',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.primaryDark,
-                                ),
-                              ),
-                              Text(
-                                '본인 인증 후 평가를 시작합니다',
-                                style: TextStyle(fontSize: 13, color: AppTheme.primary),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  _buildHeader(),
                   const SizedBox(height: 24),
-
-                  if (_step == 0) _buildStep0() else _buildStep1(),
+                  _buildCodeInputCard(),
+                  const SizedBox(height: 16),
+                  _buildHelpCard(),
                 ],
               ),
             ),
@@ -169,46 +127,49 @@ class _EvaluatorAuthScreenState extends State<EvaluatorAuthScreen> {
     );
   }
 
-  Widget _buildStep0() {
+  Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppTheme.surface,
+        color: AppTheme.primaryLight,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.divider),
-        boxShadow: AppTheme.cardShadow,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          const Text('설명회 ID 입력', style: AppStyles.headlineSmall),
-          const SizedBox(height: 4),
-          const Text(
-            'QR 코드를 스캔하거나 관리자에게 받은 설명회 ID를 입력하세요.',
-            style: AppStyles.bodySmall,
-          ),
-          const SizedBox(height: 20),
-          TextField(
-            controller: _sessionIdCtrl,
-            decoration: const InputDecoration(
-              labelText: '설명회 ID',
-              hintText: 'xxxxxxxx-xxxx-...',
-              prefixIcon: Icon(Icons.meeting_room_outlined, size: 20),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.primary,
+              borderRadius: BorderRadius.circular(12),
             ),
-            onSubmitted: (_) => _checkSession(),
+            child: const Icon(Icons.how_to_vote_outlined, color: Colors.white, size: 28),
           ),
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: _checkSession,
-            style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 52)),
-            child: const Text('다음', style: TextStyle(fontSize: 15)),
+          const SizedBox(width: 16),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '제품 설명회 평가',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.primaryDark,
+                  ),
+                ),
+                Text(
+                  '입장코드를 입력하여 평가를 시작하세요',
+                  style: TextStyle(fontSize: 13, color: AppTheme.primary),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildStep1() {
+  Widget _buildCodeInputCard() {
     return LoadingOverlay(
       isLoading: _isLoading,
       message: '인증 중...',
@@ -220,125 +181,112 @@ class _EvaluatorAuthScreenState extends State<EvaluatorAuthScreen> {
           border: Border.all(color: AppTheme.divider),
           boxShadow: AppTheme.cardShadow,
         ),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (_foundSession != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.success.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppTheme.success.withValues(alpha: 0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.check_circle, size: 18, color: AppTheme.success),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _foundSession!.title,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.textPrimary,
-                              ),
-                            ),
-                            Text(
-                              '제품: ${_foundSession!.productName}',
-                              style: AppStyles.caption,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('입장코드 입력', style: AppStyles.headlineSmall),
+            const SizedBox(height: 4),
+            const Text(
+              '관리자에게 받은 입장코드를 입력하세요.\n예: A7K9-X3M2',
+              style: AppStyles.bodySmall,
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _codeCtrl,
+              focusNode: _focusNode,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              inputFormatters: [
+                // 자동 대문자 변환 + 영숫자/하이픈만 허용
+                _UpperCaseTextFormatter(),
+                FilteringTextInputFormatter.allow(RegExp(r'[A-Z0-9\-]')),
+                LengthLimitingTextInputFormatter(9), // XXXX-XXXX
               ],
-              const Text('본인 인증', style: AppStyles.headlineSmall),
-              const SizedBox(height: 4),
-              const Text(
-                '사전 등록된 정보로 본인 인증을 완료해주세요.',
-                style: AppStyles.bodySmall,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 4,
+                fontFamily: 'monospace',
               ),
-              const SizedBox(height: 20),
-              TextFormField(
-                controller: _emailCtrl,
-                decoration: const InputDecoration(
-                  labelText: '등록된 이메일 *',
-                  prefixIcon: Icon(Icons.email_outlined, size: 20),
+              textAlign: TextAlign.center,
+              decoration: InputDecoration(
+                hintText: 'XXXX-XXXX',
+                hintStyle: TextStyle(
+                  fontSize: 22,
+                  letterSpacing: 4,
+                  color: AppTheme.textHint.withValues(alpha: 0.6),
+                  fontFamily: 'monospace',
                 ),
-                keyboardType: TextInputType.emailAddress,
-                validator: (v) {
-                  if (v?.trim().isEmpty == true) return '이메일을 입력하세요';
-                  if (!v!.contains('@')) return '올바른 이메일 형식이 아닙니다';
-                  return null;
-                },
+                contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+                errorText: _errorMessage,
+                errorMaxLines: 3,
               ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _birthCtrl,
-                obscureText: _obscureBirth,
-                decoration: InputDecoration(
-                  labelText: '생년월일 6자리 *',
-                  hintText: 'YYMMDD (예: 850115)',
-                  prefixIcon: const Icon(Icons.lock_outline, size: 20),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscureBirth ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                      size: 18,
-                    ),
-                    onPressed: () => setState(() => _obscureBirth = !_obscureBirth),
-                  ),
-                ),
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                validator: (v) {
-                  if (v?.isEmpty == true) return '생년월일을 입력하세요';
-                  if (v!.length != 6) return '6자리로 입력하세요';
-                  return null;
-                },
+              onSubmitted: (_) => _authenticate(),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _isLoading ? null : _authenticate,
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 52),
               ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _codeCtrl,
-                decoration: const InputDecoration(
-                  labelText: '입장코드 *',
-                  hintText: '관리자에게 받은 6자리 코드',
-                  prefixIcon: Icon(Icons.vpn_key_outlined, size: 20),
-                ),
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                validator: (v) {
-                  if (v?.trim().isEmpty == true) return '입장코드를 입력하세요';
-                  return null;
-                },
+              child: const Text(
+                '평가 시작',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
               ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _authenticate,
-                style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 52)),
-                child: const Text('평가 시작', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-              ),
-              const SizedBox(height: 12),
-              TextButton(
-                onPressed: () => setState(() => _step = 0),
-                style: TextButton.styleFrom(minimumSize: const Size(double.infinity, 44)),
-                child: const Text('← 설명회 ID 재입력'),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
+
+  Widget _buildHelpCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.help_outline, size: 18, color: AppTheme.textSecondary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '입장코드를 받지 못하셨나요?',
+                  style: AppStyles.labelMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '평가 진행 담당자에게 본인의 입장코드를 요청하세요. '
+                  '코드는 평가자 1명당 1개씩 발급되며, 1회 사용 후 만료됩니다.',
+                  style: AppStyles.bodySmall.copyWith(height: 1.5),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
+
+/// 입력 시 자동으로 대문자 변환
+class _UpperCaseTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    return TextEditingValue(
+      text: newValue.text.toUpperCase(),
+      selection: newValue.selection,
+    );
+  }
+}
+
 
 // ══════════════════════════════════════════════════════════════
 // 평가 입력 화면

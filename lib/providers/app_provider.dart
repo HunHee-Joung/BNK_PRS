@@ -2,6 +2,7 @@
 // 앱 전역 상태 관리 Provider
 // ============================================================
 
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import '../models/app_models.dart';
 import '../services/storage_service.dart';
@@ -142,6 +143,71 @@ class AppProvider extends ChangeNotifier {
     return true;
   }
 
+  // ══════════════════════════════════════════════════════════
+  // 평가자 단일 인증 (입장코드만으로 진입)
+  //
+  // - QR/입장코드 1개로 평가자+설명회를 동시에 식별
+  // - 1회용 코드이므로 별도 본인확인(이메일/생년월일) 불필요
+  // - 결과: AuthResult (성공/실패 사유 명시)
+  // ══════════════════════════════════════════════════════════
+  Future<EntryCodeAuthResult> authenticateByEntryCode(String entryCode) async {
+    final code = entryCode.trim().toUpperCase();
+    if (code.isEmpty) {
+      return EntryCodeAuthResult.fail('입장코드를 입력해주세요.');
+    }
+
+    final inv = await _storage.findInvitationByEntryCode(code);
+    if (inv == null) {
+      return EntryCodeAuthResult.fail('유효하지 않은 입장코드입니다.');
+    }
+    if (inv.isExpired) {
+      return EntryCodeAuthResult.fail('만료된 입장코드입니다.');
+    }
+    if (inv.isUsed) {
+      return EntryCodeAuthResult.fail('이미 사용된 입장코드입니다.\n관리자에게 재발급을 요청하세요.');
+    }
+
+    final session = await _storage.getSession(inv.sessionId);
+    if (session == null) {
+      return EntryCodeAuthResult.fail('설명회 정보를 찾을 수 없습니다.');
+    }
+    if (session.status == SessionStatus.closed) {
+      return EntryCodeAuthResult.fail('이미 종료된 설명회입니다.');
+    }
+    if (session.status == SessionStatus.scheduled) {
+      return EntryCodeAuthResult.fail('아직 시작되지 않은 설명회입니다.\n관리자가 진행을 시작한 후 다시 시도해주세요.');
+    }
+
+    final evaluator = await _storage.getEvaluatorById(inv.evaluatorId);
+    if (evaluator == null) {
+      return EntryCodeAuthResult.fail('평가자 정보를 찾을 수 없습니다.');
+    }
+    if (!evaluator.isActive) {
+      return EntryCodeAuthResult.fail('비활성화된 평가자 계정입니다.');
+    }
+
+    // 인증 성공 → 상태 갱신
+    _currentEvaluator = evaluator;
+    _currentEvalSession = session;
+
+    inv.isUsed = true;
+    inv.usedAt = DateTime.now();
+    inv.sessionAt = DateTime.now();
+    await _storage.saveInvitation(inv);
+
+    await _addAuditLog(
+      userId: evaluator.id,
+      userType: 'evaluator',
+      userName: evaluator.name,
+      action: AuditAction.evaluatorAuth,
+      targetId: session.id,
+      detail: '평가자 입장코드 인증 성공: ${evaluator.name} → ${session.title}',
+    );
+
+    notifyListeners();
+    return EntryCodeAuthResult.success(session: session, evaluator: evaluator);
+  }
+
   void clearEvaluatorSession() {
     _currentEvaluator = null;
     _currentEvalSession = null;
@@ -204,16 +270,33 @@ class AppProvider extends ChangeNotifier {
         sessionId: session.id,
         evaluatorId: evalId,
         token: _storage.newId(),
-        entryCode: _generateEntryCode(),
+        entryCode: await _generateUniqueEntryCode(),
         expiresAt: session.scheduledAt.add(const Duration(hours: 24)),
       );
       await _storage.saveInvitation(inv);
     }
   }
 
-  String _generateEntryCode() {
-    final ts = DateTime.now().millisecondsSinceEpoch % 900000 + 100000;
-    return ts.toString();
+  /// 8자리 영숫자 입장코드 생성 (혼동되는 0/O/1/I/L 제외)
+  /// - 형식: XXXX-XXXX (예: A7K9-X3M2)
+  /// - 전체 invitation 통틀어 유일성 보장 (최대 10회 재시도)
+  /// - 약 30^8 = 6,560억 조합 → 충돌 확률 무시 가능
+  Future<String> _generateUniqueEntryCode() async {
+    const chars = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; // 0,1,O,I,L 제외
+    final rng = Random.secure();
+
+    for (int attempt = 0; attempt < 10; attempt++) {
+      final buf = StringBuffer();
+      for (int i = 0; i < 8; i++) {
+        if (i == 4) buf.write('-');
+        buf.write(chars[rng.nextInt(chars.length)]);
+      }
+      final code = buf.toString();
+      final taken = await _storage.isEntryCodeTaken(code);
+      if (!taken) return code;
+    }
+    // 극히 드문 경우 (10회 충돌) — 타임스탬프 fallback
+    return 'TS-${DateTime.now().millisecondsSinceEpoch.toRadixString(36).toUpperCase()}';
   }
 
   Future<void> updateSession(EvalSession session) async {

@@ -3,6 +3,7 @@
 // ============================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../providers/app_provider.dart';
@@ -182,13 +183,12 @@ class _SessionDetailScreenState extends State<SessionDetailScreen>
   }
 
   Widget _buildOverviewTab(EvalSession session) {
-    final qrData = 'eval://session/${session.id}';
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // QR 코드
+          // 입장코드 안내 카드
           Center(
             child: Container(
               padding: const EdgeInsets.all(24),
@@ -200,18 +200,26 @@ class _SessionDetailScreenState extends State<SessionDetailScreen>
               ),
               child: Column(
                 children: [
-                  const Text('평가자 접속 QR', style: AppStyles.headlineSmall),
-                  const SizedBox(height: 4),
-                  const Text(
-                    '태블릿 화면에 이 QR을 표시하세요',
-                    style: AppStyles.bodySmall,
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryLight,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.vpn_key_rounded,
+                      size: 48,
+                      color: AppTheme.primary,
+                    ),
                   ),
-                  const SizedBox(height: 20),
-                  QrImageView(
-                    data: qrData,
-                    version: QrVersions.auto,
-                    size: 200,
-                    backgroundColor: Colors.white,
+                  const SizedBox(height: 16),
+                  const Text('평가자 입장코드 발급', style: AppStyles.headlineSmall),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '평가자별 1회용 입장코드는 "초대" 탭에서 확인할 수 있습니다.\n'
+                    '각 평가자에게 개별 입장코드를 전달하세요.',
+                    textAlign: TextAlign.center,
+                    style: AppStyles.bodySmall,
                   ),
                   const SizedBox(height: 16),
                   Container(
@@ -221,12 +229,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen>
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      'Session ID: ${session.id.substring(0, 8).toUpperCase()}',
+                      '발급된 입장코드: ${_invitations.length}개',
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: AppTheme.primaryDark,
-                        fontFamily: 'monospace',
                       ),
                     ),
                   ),
@@ -532,77 +539,293 @@ class _SessionDetailScreenState extends State<SessionDetailScreen>
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _invitations.length,
-      itemBuilder: (ctx, i) {
-        final inv = _invitations[i];
-        final provider = context.read<AppProvider>();
-        final evaluator = provider.evaluators.firstWhere(
-          (e) => e.id == inv.evaluatorId,
-          orElse: () => Evaluator(
-            id: inv.evaluatorId, name: '알 수 없음', email: '', birthDate6: '',
-            department: '', organization: '', registeredAt: DateTime.now(),
-          ),
-        );
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppTheme.surface,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: inv.isUsed ? AppTheme.success.withValues(alpha: 0.3) : AppTheme.divider,
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(evaluator.name, style: AppStyles.bodyMedium),
-                      Text(evaluator.email, style: AppStyles.caption),
-                    ],
-                  ),
+    final usedCount = _invitations.where((e) => e.isUsed).length;
+
+    return Column(
+      children: [
+        // 헤더 - 안내 + 통계
+        Container(
+          padding: const EdgeInsets.all(16),
+          color: AppTheme.primaryLight.withValues(alpha: 0.3),
+          child: Row(
+            children: [
+              const Icon(Icons.info_outline, size: 18, color: AppTheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '카드를 탭하면 QR/복사 메뉴가 열립니다  ·  사용 ${usedCount}/${_invitations.length}',
+                  style: const TextStyle(fontSize: 12, color: AppTheme.primaryDark),
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: _invitations.length,
+            itemBuilder: (ctx, i) {
+              final inv = _invitations[i];
+              final provider = context.read<AppProvider>();
+              final evaluator = provider.evaluators.firstWhere(
+                (e) => e.id == inv.evaluatorId,
+                orElse: () => Evaluator(
+                  id: inv.evaluatorId, name: '알 수 없음', email: '', birthDate6: '',
+                  department: '', organization: '', registeredAt: DateTime.now(),
+                ),
+              );
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => _showInvitationActions(inv, evaluator),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: AppTheme.primaryLight,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
-                      ),
-                      child: Text(
-                        inv.entryCode,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: AppTheme.primary,
-                          letterSpacing: 3,
-                          fontFamily: 'monospace',
+                        color: AppTheme.surface,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: inv.isUsed ? AppTheme.success.withValues(alpha: 0.3) : AppTheme.divider,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      inv.isUsed ? '사용됨' : '미사용',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: inv.isUsed ? AppTheme.success : AppTheme.textSecondary,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(evaluator.name, style: AppStyles.bodyMedium),
+                                Text(evaluator.email, style: AppStyles.caption),
+                              ],
+                            ),
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryLight,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+                                ),
+                                child: Text(
+                                  inv.entryCode,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppTheme.primary,
+                                    letterSpacing: 2,
+                                    fontFamily: 'monospace',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    inv.isUsed ? Icons.check_circle : Icons.radio_button_unchecked,
+                                    size: 12,
+                                    color: inv.isUsed ? AppTheme.success : AppTheme.textSecondary,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    inv.isUsed ? '사용됨' : '미사용',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: inv.isUsed ? AppTheme.success : AppTheme.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+                        ],
                       ),
                     ),
-                  ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 입장코드 액션 시트 - QR 표시, 복사 기능
+  void _showInvitationActions(Invitation inv, Evaluator evaluator) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 16,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Drag handle
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppTheme.divider,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // 평가자 정보
+            Text(evaluator.name, style: AppStyles.headlineSmall),
+            const SizedBox(height: 4),
+            Text(
+              '${evaluator.organization} · ${evaluator.department}',
+              style: AppStyles.bodySmall,
+            ),
+            const SizedBox(height: 20),
+
+            // QR 코드
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.divider),
+              ),
+              child: QrImageView(
+                data: 'eval://code/${inv.entryCode}',
+                version: QrVersions.auto,
+                size: 180,
+                backgroundColor: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // 입장코드 + 복사 버튼
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryLight,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    inv.entryCode,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.primary,
+                      letterSpacing: 3,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  InkWell(
+                    onTap: () async {
+                      await Clipboard.setData(ClipboardData(text: inv.entryCode));
+                      if (!ctx.mounted) return;
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        const SnackBar(
+                          content: Text('입장코드가 복사되었습니다'),
+                          duration: Duration(seconds: 2),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(6),
+                    child: const Padding(
+                      padding: EdgeInsets.all(6),
+                      child: Icon(Icons.copy, size: 22, color: AppTheme.primary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // 상태 정보
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  inv.isUsed ? Icons.check_circle : Icons.access_time,
+                  size: 16,
+                  color: inv.isUsed ? AppTheme.success : AppTheme.warning,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  inv.isUsed
+                      ? '사용됨 · ${Formatters.dateTime(inv.usedAt!)}'
+                      : '미사용 · 만료: ${Formatters.dateTime(inv.expiresAt)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: inv.isUsed ? AppTheme.success : AppTheme.warning,
+                  ),
                 ),
               ],
             ),
-          ),
-        );
-      },
+            const SizedBox(height: 20),
+
+            // 액션 버튼
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final text = '${evaluator.name}님\n'
+                          '설명회: ${widget.session.title}\n'
+                          '입장코드: ${inv.entryCode}\n'
+                          '만료: ${Formatters.dateTime(inv.expiresAt)}';
+                      await Clipboard.setData(ClipboardData(text: text));
+                      if (!ctx.mounted) return;
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('초대 문구가 복사되었습니다'),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.text_snippet_outlined, size: 18),
+                    label: const Text('초대문구 복사'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close, size: 18),
+                    label: const Text('닫기'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 

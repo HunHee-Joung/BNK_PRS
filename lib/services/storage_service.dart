@@ -244,6 +244,31 @@ class StorageService {
     return null;
   }
 
+  /// 입장코드로 초대 찾기 (평가자 단일 인증용)
+  /// - 코드는 전체 invitation 통틀어 고유함을 보장
+  Future<Invitation?> findInvitationByEntryCode(String entryCode) async {
+    final box = Hive.box(_boxInvitations);
+    final normalized = entryCode.trim().toUpperCase();
+    for (final key in box.keys) {
+      final data = jsonDecode(box.get(key) as String) as Map<String, dynamic>;
+      if ((data['entryCode'] as String).toUpperCase() == normalized) {
+        return Invitation.fromMap(data);
+      }
+    }
+    return null;
+  }
+
+  /// 입장코드 중복 검사 (생성 시 사용)
+  Future<bool> isEntryCodeTaken(String entryCode) async {
+    final box = Hive.box(_boxInvitations);
+    final normalized = entryCode.trim().toUpperCase();
+    for (final key in box.keys) {
+      final data = jsonDecode(box.get(key) as String) as Map<String, dynamic>;
+      if ((data['entryCode'] as String).toUpperCase() == normalized) return true;
+    }
+    return false;
+  }
+
   // ══════════════════════════════════════════════════════════
   // Submission CRUD
   // ══════════════════════════════════════════════════════════

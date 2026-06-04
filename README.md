@@ -224,4 +224,4 @@ cd build/web && python3 -m http.server 5060
 
 - **개발 책임**: IT기획부 AI인프라팀
 - **이슈 등록**: GitHub Issues
-- **버전**: v1.0.0 (MVP)
+- **버전**: v1.0.1 (평가자 인증 UX 단순화 — 입장코드 단독 진입)

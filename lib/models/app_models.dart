@@ -296,6 +296,32 @@ class Invitation {
 }
 
 // ══════════════════════════════════════════════════════════════
+// 입장코드 인증 결과
+// ══════════════════════════════════════════════════════════════
+class EntryCodeAuthResult {
+  final bool ok;
+  final String? errorMessage;
+  final EvalSession? session;
+  final Evaluator? evaluator;
+
+  const EntryCodeAuthResult._({
+    required this.ok,
+    this.errorMessage,
+    this.session,
+    this.evaluator,
+  });
+
+  factory EntryCodeAuthResult.success({
+    required EvalSession session,
+    required Evaluator evaluator,
+  }) =>
+      EntryCodeAuthResult._(ok: true, session: session, evaluator: evaluator);
+
+  factory EntryCodeAuthResult.fail(String message) =>
+      EntryCodeAuthResult._(ok: false, errorMessage: message);
+}
+
+// ══════════════════════════════════════════════════════════════
 // 설명회 (Session)
 // ══════════════════════════════════════════════════════════════
 class EvalSession {
